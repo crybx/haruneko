@@ -13,6 +13,7 @@ export async function bundle(blinkApplicationSourceDirectory, blinkApplicationRe
     await bundleApp(blinkApplicationSourceDirectory, blinkDeploymentTemporaryDirectory);
     await makePortable(blinkDeploymentTemporaryDirectory);
     await updateBinary(blinkApplicationResourcesDirectory, blinkDeploymentTemporaryDirectory);
+    await createLocalLauncher(blinkDeploymentTemporaryDirectory);
     // TODO: include ffmpeg
     // TODO: include imagemagick
     // TODO: include kindlegen
@@ -52,6 +53,11 @@ async function updateBinary(blinkApplicationResourcesDirectory, blinkDeploymentT
     ].join(' ');
     await run(command);
     await fs.rename(binary, binary.replace(/electron\.exe$/i, `${pkgConfig.name}.exe`));
+}
+
+async function createLocalLauncher(blinkDeploymentTemporaryDirectory) {
+    const batFile = path.join(blinkDeploymentTemporaryDirectory, `${pkgConfig.name}-local.bat`);
+    await fs.writeFile(batFile, `@echo off\r\nstart "" "%~dp0${pkgConfig.name}.exe" --local\r\n`);
 }
 
 async function createZipArchive(blinkDeploymentTemporaryDirectory, blinkDeploymentOutputDirectory) {
