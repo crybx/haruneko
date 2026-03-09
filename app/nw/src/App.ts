@@ -1,3 +1,5 @@
+import path from 'path';
+import fs from 'fs/promises';
 import { Command } from 'commander';
 import { IPC } from './ipc/InterProcessCommunication';
 import { RPCServer } from '../../src/rpc/Server';
@@ -12,6 +14,7 @@ type Manifest = {
 
 type CLIOptions = {
     origin?: string;
+    local?: boolean;
 }
 
 function ParseCLI(): CLIOptions {
@@ -20,6 +23,7 @@ function ParseCLI(): CLIOptions {
             .allowUnknownOption(true)
             .allowExcessArguments(true)
             .option('--origin [url]', 'custom location from which the web-app shall be loaded')
+            .option('--local', 'serve bundled webapp files locally instead of loading from remote')
             .parse(nw.App.argv, { from: 'user' });
         return argv.opts<CLIOptions>();
     } catch {
@@ -41,7 +45,17 @@ async function OpenWindow() {
     const rpc = new RPCServer('/hakuneko', new RemoteProcedureCallContract(ipc));
     new RemoteProcedureCallManager(rpc, ipc);
 
-    const url = argv.origin ?? GetDefaultURL() ?? 'about:blank';
+    let useLocalWebapp = false;
+    if (argv.local && !argv.origin) {
+        try {
+            await fs.access(path.resolve(__dirname, 'index.html'));
+            useLocalWebapp = true;
+        } catch { /* webapp not found */ }
+    }
+
+    const url = useLocalWebapp
+        ? 'index.html'
+        : argv.origin ?? GetDefaultURL() ?? 'about:blank';
     const win = await new Promise<NWJS_Helpers.win>((resolve, reject) => nw.Window.open(url, {
         id: 'hakuneko',
         show: url ? false : true,

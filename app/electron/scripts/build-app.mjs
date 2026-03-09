@@ -34,3 +34,12 @@ const manifest = {
 
 await fs.writeFile(targetFile, JSON.stringify(manifest, null, 4));
 await run('npm install --omit=dev', dirBuild);
+
+const webBuildDir = path.resolve('..', '..', 'web', 'build');
+const webAppTarget = path.resolve(dirBuild, 'webapp');
+try {
+    await fs.cp(webBuildDir, webAppTarget, { recursive: true });
+    console.log('Copied web build to:', webAppTarget);
+} catch (error) {
+    console.warn('Web build not found, skipping local webapp bundling:', error.message);
+}

@@ -1,6 +1,7 @@
 import path from 'path';
 import fs from 'fs/promises';
-import { app } from 'electron';
+import { pathToFileURL } from 'url';
+import { app, protocol, net } from 'electron';
 import { Command } from 'commander';
 import { IPC } from './ipc/InterProcessCommunication';
 import { ApplicationWindow } from './ipc/ApplicationWindow';
@@ -15,6 +16,7 @@ process.env['ELECTRON_DISABLE_SECURITY_WARNINGS'] = 'true';
 
 type CLIOptions = {
     origin?: string;
+    local?: boolean;
 }
 
 app.commandLine.appendSwitch('allow-running-insecure-content');
@@ -27,6 +29,7 @@ function ParseCLI(): CLIOptions {
             .allowUnknownOption(true)
             .allowExcessArguments(true)
             .option('--origin [url]', 'custom location from which the web-app shall be loaded')
+            .option('--local', 'serve bundled webapp files locally instead of loading from remote')
             .parse(process.argv, { from: 'electron' });
         return argv.opts<CLIOptions>();
     } catch {
@@ -103,10 +106,34 @@ async function OpenWindow(): Promise<void> {
         await SetupUserDataDirectory(manifest);
         app.userAgentFallback = manifest['user-agent'] ?? app.userAgentFallback.split(/\s+/).filter(segment => !/(hakuneko|electron)/i.test(segment)).join(' ');
         await app.whenReady();
+
+        const webappDir = path.resolve(app.getAppPath(), 'webapp');
+        let useLocalWebapp = false;
+        if (argv.local && !argv.origin) {
+            try {
+                await fs.access(webappDir);
+                useLocalWebapp = true;
+            } catch { /* webapp dir not found */ }
+        }
+
+        if (useLocalWebapp) {
+            protocol.handle('app', (request) => {
+                const url = new URL(request.url);
+                const filePath = path.join(webappDir, decodeURIComponent(url.pathname));
+                if (!path.resolve(filePath).startsWith(webappDir)) {
+                    return new Response('Forbidden', { status: 403 });
+                }
+                return net.fetch(pathToFileURL(filePath).href);
+            });
+        }
+
+        const uri = useLocalWebapp
+            ? new URL('app://hakuneko/index.html')
+            : new URL(argv.origin ?? manifest.url ?? 'about:blank');
+
         const win = await CreateApplicationWindow();
         const ipc = new IPC(win.webContents);
         const rpc = new RPCServer('/hakuneko', new RemoteProcedureCallContract(ipc, win.webContents));
-        const uri = new URL(argv.origin ?? manifest.url ?? 'about:blank');
         UpdatePermissions(win.webContents.session, uri);
         new RemoteProcedureCallManager(rpc, ipc);
         new FetchProvider(ipc, win.webContents);
@@ -119,5 +146,17 @@ async function OpenWindow(): Promise<void> {
         app.quit();
     }
 }
+
+protocol.registerSchemesAsPrivileged([{
+    scheme: 'app',
+    privileges: {
+        standard: true,
+        secure: true,
+        supportFetchAPI: true,
+        stream: true,
+        codeCache: true,
+        corsEnabled: true,
+    }
+}]);
 
 OpenWindow();
