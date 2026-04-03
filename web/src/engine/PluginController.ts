@@ -58,4 +58,14 @@ export class PluginController {
         }
         await this.storageController.SavePersistent(this._favorites.Value, Store.PluginFavorites);
     }
+
+    public async ImportFavorites(identifiers: string[]): Promise<number> {
+        const current = this._favorites.Value;
+        const added = identifiers.filter(id => !current.includes(id));
+        if (added.length > 0) {
+            this._favorites.Value = [...current, ...added];
+            await this.storageController.SavePersistent(this._favorites.Value, Store.PluginFavorites);
+        }
+        return added.length;
+    }
 }

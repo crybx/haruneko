@@ -177,5 +177,30 @@ describe('PluginController', () => {
             expect(testee.IsFavorite('plugin-a')).toBe(true);
             expect(testee.IsFavorite('plugin-b')).toBe(false);
         });
+
+        it('Should merge new favorites on import and return count added', async () => {
+            const fixture = new TestFixture();
+            fixture.MockStorageController.LoadPersistent.calledWith(Store.PluginFavorites).mockResolvedValue(['plugin-a']);
+            const testee = fixture.CreateTestee();
+            await vi.waitFor(() => expect(testee.Favorites.Value).toHaveLength(1));
+
+            const added = await testee.ImportFavorites(['plugin-a', 'plugin-b', 'plugin-c']);
+
+            expect(added).toBe(2);
+            expect(testee.Favorites.Value).toStrictEqual(['plugin-a', 'plugin-b', 'plugin-c']);
+            expect(fixture.MockStorageController.SavePersistent).toHaveBeenCalledWith(['plugin-a', 'plugin-b', 'plugin-c'], Store.PluginFavorites);
+        });
+
+        it('Should not persist when import adds no new favorites', async () => {
+            const fixture = new TestFixture();
+            fixture.MockStorageController.LoadPersistent.calledWith(Store.PluginFavorites).mockResolvedValue(['plugin-a']);
+            const testee = fixture.CreateTestee();
+            await vi.waitFor(() => expect(testee.Favorites.Value).toHaveLength(1));
+
+            const added = await testee.ImportFavorites(['plugin-a']);
+
+            expect(added).toBe(0);
+            expect(fixture.MockStorageController.SavePersistent).not.toHaveBeenCalled();
+        });
     });
 });

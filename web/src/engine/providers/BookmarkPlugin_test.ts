@@ -7,6 +7,7 @@ import type { PluginController } from '../PluginController';
 import type { InteractiveFileContentProvider } from '../InteractiveFileContentProvider';
 import { BookmarkPlugin } from './BookmarkPlugin';
 import { MissingWebsite, type Bookmark, type BookmarkSerialized } from './Bookmark';
+import { Observable } from '../Observable';
 
 class BlobProxy extends Blob {
 
@@ -79,6 +80,17 @@ class TestFixture {
     public readonly mockInteractiveFileContentProvider = mock<InteractiveFileContentProvider>();
     public readonly mockStorageController = mock<StorageController>();
     public readonly mockPluginController = mock<PluginController>();
+    private readonly _favorites = new Observable<string[]>([]);
+
+    constructor() {
+        Object.defineProperty(this.mockPluginController, 'Favorites', { get: () => this._favorites });
+        this.mockPluginController.ImportFavorites.mockResolvedValue(0);
+    }
+
+    public SetupFavorites(favorites: string[]): TestFixture {
+        this._favorites.Value = favorites;
+        return this;
+    }
 
     public SetupStoredBookmarks(bookmarks?: BookmarkSerialized[], delay = 0): TestFixture {
         this.mockStorageController.LoadPersistent.calledWith(Store.Bookmarks, undefined).mockReturnValue(new Promise(resolve => setTimeout(() => resolve(bookmarks ?? TestFixture.DefaultStoredEntries), delay)));
@@ -209,6 +221,34 @@ describe('BookmarkPlugin', () => {
             }, Store.Bookmarks, 'website-02 :: website-02/anime');
         });
 
+        it('Should successfully import new format with favorites', async () => {
+            const fixture = new TestFixture()
+                .SetupStoredBookmarks()
+                .SetupWebsitePlugins()
+                .SetupInfoTrackers();
+            fixture.mockPluginController.ImportFavorites.mockResolvedValue(2);
+            const file = mock<Blob>();
+            fixture.mockInteractiveFileContentProvider.LoadFile.mockResolvedValue(file);
+            file.text.mockResolvedValue(JSON.stringify({
+                bookmarks: [
+                    {
+                        Title: 'Bookmark 1002',
+                        Created: 2.1, Updated: 2.2,
+                        Media: { ProviderID: 'website-01', EntryID: 'website-01/anime' },
+                        Info: { ProviderID: null, EntryID: null }
+                    }
+                ],
+                favorites: ['website-01', 'website-02']
+            }));
+            const testee = await fixture.CreateTestee();
+            const actual = await testee.Import();
+
+            expect(actual.found).toBe(1);
+            expect(actual.imported).toBe(1);
+            expect(actual.favorites).toBe(2);
+            expect(fixture.mockPluginController.ImportFavorites).toBeCalledWith(['website-01', 'website-02']);
+        });
+
         it('Should successfully import legacy bookmarks', async () => {
             const fixture = new TestFixture()
                 .SetupStoredBookmarks()
@@ -310,17 +350,20 @@ describe('BookmarkPlugin', () => {
     describe('Export', () => {
 
         it('Should successfully export bookmarks', async () => {
+            const favorites = ['website-01', 'website-02'];
             const fixture = new TestFixture()
                 .SetupStoredBookmarks()
                 .SetupWebsitePlugins()
-                .SetupInfoTrackers();
+                .SetupInfoTrackers()
+                .SetupFavorites(favorites);
             const today = new Date(Date.now() - 60000 * new Date().getTimezoneOffset()).toISOString().split('T').at(0);
             const testee = await fixture.CreateTestee();
             const actual = await testee.Export();
 
             expect(actual.cancelled).toBe(false);
             expect(actual.exported).toBe(3);
-            expect(fixture.mockInteractiveFileContentProvider.SaveFile).toBeCalledWith(expect.objectContaining({ data: TestFixture.DefaultStoredEntries }), {
+            expect(actual.favorites).toBe(2);
+            expect(fixture.mockInteractiveFileContentProvider.SaveFile).toBeCalledWith(expect.objectContaining({ data: { bookmarks: TestFixture.DefaultStoredEntries, favorites } }), {
                 suggestedName: `HakuNeko (${today}).bookmarks`,
                 types: [
                     {

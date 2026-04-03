@@ -77,6 +77,11 @@
                         ({results.broken})
                     </Tag> broken
                 </div>
+                <div>
+                    <Tag type="purple">
+                        ({results.favorites})
+                    </Tag> favorites added
+                </div>
             {/if}
         {:catch error}
             <InlineLoading status="error" description="Error: {error}"
@@ -101,6 +106,11 @@
                     <Tag type="green">
                         ({results.exported})
                     </Tag> exported
+                </div>
+                <div>
+                    <Tag type="purple">
+                        ({results.favorites})
+                    </Tag> favorites included
                 </div>
             {/if}
         {:catch error}

@@ -13,11 +13,13 @@ export type BookmarkImportResult = {
     imported: number;
     skipped: number;
     broken: number;
+    favorites: number;
 }
 
 export type BookmarkExportResult = {
     cancelled: boolean;
     exported: number;
+    favorites: number;
 }
 
 const defaultBookmarkFileType: FilePickerAcceptType = {
@@ -75,6 +77,7 @@ export class BookmarkPlugin extends MediaContainer<Bookmark> {
             imported: 0,
             skipped: 0,
             broken: 0,
+            favorites: 0,
         };
         try {
             data = await this.fileIO.LoadFile({
@@ -88,7 +91,10 @@ export class BookmarkPlugin extends MediaContainer<Bookmark> {
                 throw error;
             }
         }
-        const found = (JSON.parse(await data.text()) as Array<unknown>).map(entry => this.Deserialize(ConvertToSerializedBookmark(entry)));
+        const parsed = JSON.parse(await data.text());
+        const bookmarkEntries: unknown[] = Array.isArray(parsed) ? parsed : parsed.bookmarks ?? [];
+        const favoriteEntries: string[] = Array.isArray(parsed) ? [] : parsed.favorites ?? [];
+        const found = bookmarkEntries.map(entry => this.Deserialize(ConvertToSerializedBookmark(entry)));
         result.found = found.length;
         const imported = found.filter(bookmark => this.Entries.Value.none(entry => entry.IsSameAs(bookmark)));
         for(const bookmark of imported) {
@@ -98,16 +104,19 @@ export class BookmarkPlugin extends MediaContainer<Bookmark> {
         result.imported = imported.length;
         result.skipped = found.length - imported.length;
         result.broken = imported.filter(entry => entry.Parent instanceof MissingWebsite).length;
+        result.favorites = await this.plugins.ImportFavorites(favoriteEntries);
         return result;
     }
 
     public async Export(): Promise<BookmarkExportResult> {
         const bookmarks = super.Entries.Value.map(bookmark => this.Serialize(bookmark));
+        const favorites = this.plugins.Favorites.Value;
         const result: BookmarkExportResult = {
             cancelled: false,
-            exported: 0
+            exported: 0,
+            favorites: 0,
         };
-        const data = new Blob([ JSON.stringify(bookmarks, null, 2) ], { type: 'application/json' });
+        const data = new Blob([ JSON.stringify({ bookmarks, favorites }, null, 2) ], { type: 'application/json' });
         const today = new Date(Date.now() - 60000 * new Date().getTimezoneOffset()).toISOString().split('T').at(0);
         try {
             await this.fileIO.SaveFile(data, {
@@ -115,6 +124,7 @@ export class BookmarkPlugin extends MediaContainer<Bookmark> {
                 types: [ defaultBookmarkFileType ]
             });
             result.exported = bookmarks.length;
+            result.favorites = favorites.length;
             return result;
         } catch(error) {
             if(this.fileIO.IsAbortError(error)) {
